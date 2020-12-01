@@ -19,14 +19,12 @@
     "node": ">= v8.0.0"
   },
   "devDependencies": {
-    "chai": "~3.4.1",
-    "eslint": "^1.10.3",
-    "mocha": "~2.3.4",
-    "sinon": "^1.17.2"
+    "chai": "~3.5.0",
+    "eslint": "7.14.0",
+    "mocha": "~2.5.3",
+    "sinon": "^1.17.7"
   },
-  "dependencies": {
-    "bluebird": "^3.1.1"
-  },
+  "dependencies": {},
   "license": "MIT",
   "scripts": {
     "test": "mocha lib/*.test.js"
