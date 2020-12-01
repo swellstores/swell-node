@@ -1,6 +1,6 @@
 {
   "name": "swell-node",
-  "version": "3.1.5",
+  "version": "3.1.6",
   "description": "Swell API library for NodeJS",
   "keywords": [
     "swell",
