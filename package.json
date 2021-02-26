@@ -16,17 +16,18 @@
   },
   "bugs:": "https://github.com/swellstores/swell-node/issues",
   "engines": {
-    "node": ">= v8.0.0"
+    "node": ">= v10.24.0"
   },
   "devDependencies": {
-    "chai": "~3.5.0",
+    "chai": "3.5.0",
     "eslint": "7.14.0",
-    "mocha": "~2.5.3",
-    "sinon": "^1.17.7"
+    "jest": "26.6.3",
+    "sinon": "9.2.4"
   },
   "dependencies": {},
   "license": "MIT",
   "scripts": {
-    "test": "mocha lib/*.test.js"
+    "test": "jest --config=jest.config.json",
+    "test:watch": "jest --config=jest.config.json --watch"
   }
 }
