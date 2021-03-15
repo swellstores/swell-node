@@ -1,4 +1,4 @@
-const Swell = require('./lib/client.js');
+const Client = require('./lib/client.js');
 
-module.exports = new Swell.Client();
-module.exports.createClient = Swell.createClient;
+module.exports = new Client();
+module.exports.createClient = Client.create;
