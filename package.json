@@ -16,7 +16,7 @@
   },
   "bugs:": "https://github.com/swellstores/swell-node/issues",
   "engines": {
-    "node": ">= v10.24.0"
+    "node": ">= v12.21.0"
   },
   "devDependencies": {
     "chai": "3.5.0",
