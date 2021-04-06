@@ -1,6 +1,6 @@
 {
   "name": "swell-node",
-  "version": "4.0.2",
+  "version": "1.0.0",
   "description": "Swell API library for NodeJS",
   "keywords": [
     "swell",
@@ -9,25 +9,53 @@
     "api"
   ],
   "homepage": "https://github.com/swellstores/swell-node",
-  "author": "Swell",
   "repository": {
     "type": "git",
     "url": "git://github.com/swellstores/swell-node.git"
   },
-  "bugs:": "https://github.com/swellstores/swell-node/issues",
+  "license": "MIT",
+  "author": "Swell",
+  "scripts": {
+    "test": "jest --config=jest.config.json",
+    "lint": "eslint --fix . --ext .js --ext .md",
+    "test:watch": "jest --config=jest.config.json --watch",
+    "prepare": "husky install"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "lint-staged": {
+    "*.{js,json,md}": [
+      "prettier --write"
+    ],
+    "*.{js,md}": [
+      "eslint --cache --fix"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^12.1.1",
+    "@commitlint/config-conventional": "^12.1.1",
+    "chai": "4.3.4",
+    "eslint": "7.23.0",
+    "eslint-config-prettier": "^8.1.0",
+    "eslint-plugin-jest": "^24.3.4",
+    "eslint-plugin-markdown": "2.0.1",
+    "eslint-plugin-node": "^11.1.0",
+    "husky": "^6.0.0",
+    "jest": "26.6.3",
+    "lint-staged": "^10.5.4",
+    "prettier": "^2.2.1",
+    "sinon": "10.0.0"
+  },
   "engines": {
     "node": ">= v12.21.0"
   },
-  "devDependencies": {
-    "chai": "3.5.0",
-    "eslint": "7.14.0",
-    "jest": "26.6.3",
-    "sinon": "9.2.4"
-  },
-  "dependencies": {},
-  "license": "MIT",
-  "scripts": {
-    "test": "jest --config=jest.config.json",
-    "test:watch": "jest --config=jest.config.json --watch"
+  "bugs:": "https://github.com/swellstores/swell-node/issues",
+  "release": {
+    "branches": [
+      "main"
+    ]
   }
 }

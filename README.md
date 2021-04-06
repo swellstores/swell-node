@@ -1,6 +1,9 @@
-## Swell API library for NodeJS
+# Swell API library for NodeJS
 
-[Swell](https://www.swell.is) is a customizable, API-first platform for powering modern B2C/B2B shopping experiences and marketplaces. Build and connect anything using your favorite technologies, and provide admins with an easy to use dashboard.
+[Swell](https://www.swell.is) is a customizable, API-first platform for powering
+modern B2C/B2B shopping experiences and marketplaces. Build and connect anything
+using your favorite technologies, and provide admins with an easy to use
+dashboard.
 
 ## Install
 
@@ -9,18 +12,18 @@
 ## Connect
 
 ```javascript
-const swell = require('swell-node');
+const swell = require('swell-node')
 
-swell.init('my-store', 'secret-key');
+swell.init('my-store', 'secret-key')
 ```
 
 To connect to multiple stores in the same process, use `swell.createClient()`:
 
 ```javascript
-const swell = require('swell-node');
+const swell = require('swell-node')
 
-const store1 = swell.createClient('my-store-1', 'secret-key-1');
-const store2 = swell.createClient('my-store-2', 'secret-key-2');
+const store1 = swell.createClient('my-store-1', 'secret-key-1')
+const store2 = swell.createClient('my-store-2', 'secret-key-2')
 ```
 
 ## Usage
@@ -29,30 +32,34 @@ const store2 = swell.createClient('my-store-2', 'secret-key-2');
 try {
   const products = await swell.get('/products', {
     active: true
-  });
-  console.log(products);
+  })
+  console.log(products)
 } catch (err) {
-  console.error(err);
+  console.error(err)
 }
 ```
 
 ## Caching
 
-This library provides in-memory caching enabled by default, using a version protocol that means you don't have to worry about stale cache. Records that don't change too frequently, such as products, will always return from cache when possible.
+This library provides in-memory caching enabled by default, using a version
+protocol that means you don't have to worry about stale cache. Records that
+don't change too frequently, such as products, will always return from cache
+when possible.
 
 To disable caching behavior, use the option `cache: false`.
 
 ```javascript
 swell.init('my-store', 'secret-key', {
-  cache: false,
-});
+  cache: false
+})
 ```
 
 ## Documentation
 
 API reference: https://swell.store/docs/api
 
-Universal JavaScript client for Swell's Frontend API (Swell.js): https://swell.store/docs/js
+Universal JavaScript client for Swell's Frontend API (Swell.js):
+https://swell.store/docs/js
 
 ## Contributing
 
