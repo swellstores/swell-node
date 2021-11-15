@@ -50,9 +50,7 @@ swell.init('my-store', 'secret-key', {
 
 ## Documentation
 
-API reference: https://swell.store/docs/api
-
-Universal JavaScript client for Swell's Frontend API (Swell.js): https://swell.store/docs/js
+This library is intended for use with the Swell Backend API: https://developers.swell.is/backend-api
 
 ## Contributing
 
