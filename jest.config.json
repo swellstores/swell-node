@@ -1,3 +1,5 @@
 {
-  "testEnvironment": "node"
+  "testEnvironment": "node",
+  "clearMocks": true,
+  "restoreMocks": true
 }
