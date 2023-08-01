@@ -1,6 +1,6 @@
 {
   "name": "swell-node",
-  "version": "5.1.1",
+  "version": "5.2.0",
   "description": "Swell API library for NodeJS",
   "engines": {
     "node": ">=14.19.1",
