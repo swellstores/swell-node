@@ -26,6 +26,7 @@
   },
   "license": "MIT",
   "scripts": {
+    "prettier": "prettier --write \"**/*.js\"",
     "test": "jest --config=jest.config.json",
     "test:watch": "jest --config=jest.config.json --watch"
   }
