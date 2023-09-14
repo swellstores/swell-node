@@ -20,15 +20,13 @@
   },
   "bugs:": "https://github.com/swellstores/swell-node/issues",
   "devDependencies": {
-    "chai": "^4.3.7",
-    "eslint": "^8.36.0",
-    "jest": "^29.5.0",
-    "prettier": "^3.0.0",
-    "sinon": "^15.0.1"
+    "eslint": "^8.49.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.0.3"
   },
-  "dependencies": {},
   "license": "MIT",
   "scripts": {
+    "prettier": "prettier --write \"**/*.js\"",
     "test": "jest --config=jest.config.json",
     "test:watch": "jest --config=jest.config.json --watch"
   }
