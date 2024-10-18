@@ -31,21 +31,18 @@ describe('Client', () => {
 
     it('instantiates multiple clients', () => {
       const one = client.createClient('id', 'key1');
-      expect(
-        one instanceof Client,
-      ).toBe(true);
-      expect(
-        one.httpClient?.defaults.headers.common['X-Header'],
-      ).toBe(undefined);
+      expect(one instanceof Client).toBe(true);
+      expect(one.httpClient?.defaults.headers.common['X-Header']).toBe(
+        undefined,
+      );
 
-      const two = client.createClient('id', 'key2', { headers: { 'X-Header': 'Foo' } });
-      expect(
-        two instanceof Client,
-      ).toBe(true);
-      expect(
-        two.httpClient?.defaults.headers.common['X-Header'],
-      ).toEqual('Foo');
-
+      const two = client.createClient('id', 'key2', {
+        headers: { 'X-Header': 'Foo' },
+      });
+      expect(two instanceof Client).toBe(true);
+      expect(two.httpClient?.defaults.headers.common['X-Header']).toEqual(
+        'Foo',
+      );
     });
   }); // describe: #createClient
 
