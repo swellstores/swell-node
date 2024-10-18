@@ -9,7 +9,7 @@
 ## Connect
 
 ```javascript
-const swell = require('swell-node');
+const { swell } = require('swell-node');
 
 swell.init('my-store', 'secret-key');
 ```
@@ -17,35 +17,23 @@ swell.init('my-store', 'secret-key');
 To connect to multiple stores in the same process, use `swell.createClient()`:
 
 ```javascript
-const swell = require('swell-node');
+const { swell } = require('swell-node');
 
-const store1 = swell.createClient('my-store-1', 'secret-key-1');
-const store2 = swell.createClient('my-store-2', 'secret-key-2');
+const client1 = swell.createClient('my-store-1', 'secret-key-1');
+const client2 = swell.createClient('my-store-2', 'secret-key-2');
 ```
 
 ## Usage
 
 ```javascript
 try {
-  const products = await swell.get('/products', {
+  const { data } = await swell.get('/products', {
     active: true
   });
-  console.log(products);
+  console.log(data);
 } catch (err) {
-  console.error(err);
+  console.error(err.message);
 }
-```
-
-## Caching
-
-This library provides in-memory caching enabled by default, using a version protocol that means you don't have to worry about stale cache. Records that don't change too frequently, such as products, will always return from cache when possible.
-
-To disable caching behavior, use the option `cache: false`.
-
-```javascript
-swell.init('my-store', 'secret-key', {
-  cache: false,
-});
 ```
 
 ## Documentation
