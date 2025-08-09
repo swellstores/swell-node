@@ -32,16 +32,11 @@ export interface ClientOptions {
   recycleAfterRequests?: number;
   recycleAfterMs?: number;
   onClientRecycle?: (stats: {
-    oldClient: {
-      createdAt: number;
-      activeRequests: number;
-      totalRequests: number;
-      ageMs: number;
-    };
-    newClient: {
-      createdAt: number;
-    };
-    reason: string;
+    createdAt: number;
+    activeRequests: number;
+    totalRequests: number;
+    ageMs: number;
+    newClientCreatedAt: number;
   }) => void;
 }
 
@@ -62,7 +57,7 @@ const DEFAULT_OPTIONS: Readonly<ClientOptions> = Object.freeze({
   retries: 0, // 0 => no retries
   maxSockets: 100,
   recycleAfterRequests: 1000,
-  recycleAfterMs: 30000, // 30 seconds
+  recycleAfterMs: 15000, // 15 seconds
 });
 
 class ApiError extends Error {
@@ -226,13 +221,8 @@ export class Client {
     // Call the callback if provided
     if (this.options.onClientRecycle) {
       this.options.onClientRecycle({
-        oldClient: oldClientStats,
-        newClient: {
-          createdAt: this._activeClient!.createdAt,
-        },
-        reason: `Recycled after ${
-          oldClientStats.totalRequests
-        } requests and ${Math.round(oldClientStats.ageMs / 1000)}s`,
+        ...oldClientStats,
+        newClientCreatedAt: this._activeClient!.createdAt,
       });
     }
 
