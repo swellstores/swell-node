@@ -139,10 +139,16 @@ export class Client {
       },
       httpAgent: new HttpCookieAgent({
         cookies: { jar },
+        keepAlive: true,
+        maxSockets: 100,
+        keepAliveMsecs: 1000 // Default, but explicit
       }),
       httpsAgent: new HttpsCookieAgent({
         cookies: { jar },
         rejectUnauthorized: Boolean(verifyCert),
+        keepAlive: true,
+        maxSockets: 100,
+        keepAliveMsecs: 1000 // Default, but explicit
       }),
       ...(timeout ? { timeout } : undefined),
     });
