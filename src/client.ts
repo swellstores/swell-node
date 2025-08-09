@@ -31,6 +31,18 @@ export interface ClientOptions {
   maxSockets?: number;
   recycleAfterRequests?: number;
   recycleAfterMs?: number;
+  onClientRecycle?: (stats: {
+    oldClient: {
+      createdAt: number;
+      activeRequests: number;
+      totalRequests: number;
+      ageMs: number;
+    };
+    newClient: {
+      createdAt: number;
+    };
+    reason: string;
+  }) => void;
 }
 
 const MODULE_VERSION: string = (({ name, version }) => {
@@ -50,7 +62,7 @@ const DEFAULT_OPTIONS: Readonly<ClientOptions> = Object.freeze({
   retries: 0, // 0 => no retries
   maxSockets: 100,
   recycleAfterRequests: 1000,
-  recycleAfterMs: 120000, // 2 minutes
+  recycleAfterMs: 30000, // 30 seconds
 });
 
 class ApiError extends Error {
@@ -197,12 +209,32 @@ export class Client {
   private _recycleHttpClient(): void {
     if (!this._activeClient) return;
 
+    const oldClientStats = {
+      createdAt: this._activeClient.createdAt,
+      activeRequests: this._activeClient.activeRequests,
+      totalRequests: this._activeClient.totalRequests,
+      ageMs: Date.now() - this._activeClient.createdAt,
+    };
+
     // Move current client to old clients map
     const clientId = `client_${++this._clientCounter}`;
     this._oldClients.set(clientId, this._activeClient);
 
     // Create new client
     this._initHttpClient();
+
+    // Call the callback if provided
+    if (this.options.onClientRecycle) {
+      this.options.onClientRecycle({
+        oldClient: oldClientStats,
+        newClient: {
+          createdAt: this._activeClient!.createdAt,
+        },
+        reason: `Recycled after ${
+          oldClientStats.totalRequests
+        } requests and ${Math.round(oldClientStats.ageMs / 1000)}s`,
+      });
+    }
 
     // Schedule cleanup of old client when no active requests
     this._scheduleOldClientCleanup(clientId);
