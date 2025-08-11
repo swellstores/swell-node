@@ -220,10 +220,15 @@ export class Client {
 
     // Call the callback if provided
     if (this.options.onClientRecycle) {
-      this.options.onClientRecycle({
-        ...oldClientStats,
-        newClientCreatedAt: this._activeClient!.createdAt,
-      });
+      try {
+        this.options.onClientRecycle({
+          ...oldClientStats,
+          newClientCreatedAt: this._activeClient!.createdAt,
+        });
+      } catch (error) {
+        // Silently ignore callback errors to prevent disrupting the recycling process
+        console.warn('Error in onClientRecycle callback:', error);
+      }
     }
 
     // Schedule cleanup of old client when no active requests
@@ -241,10 +246,14 @@ export class Client {
       if (oldClient.activeRequests === 0) {
         // Destroy the HTTP agents to free resources
         if (oldClient.client.defaults.httpAgent) {
-          (oldClient.client.defaults.httpAgent as any).destroy?.();
+          (
+            oldClient.client.defaults.httpAgent as { destroy?: () => void }
+          ).destroy?.();
         }
         if (oldClient.client.defaults.httpsAgent) {
-          (oldClient.client.defaults.httpsAgent as any).destroy?.();
+          (
+            oldClient.client.defaults.httpsAgent as { destroy?: () => void }
+          ).destroy?.();
         }
 
         this._oldClients.delete(clientId);
