@@ -69,14 +69,15 @@ describe('Client', () => {
       client.init('id', 'key');
 
       expect(client.options).toEqual({
-        headers: {},
         url: 'https://api.swell.store',
         verifyCert: true,
         version: 1,
+        headers: {},
         retries: 0,
         maxSockets: 100,
-        recycleAfterMs: 15000,
+        keepAliveMs: 1000,
         recycleAfterRequests: 1000,
+        recycleAfterMs: 15000,
       });
     });
 
@@ -85,17 +86,19 @@ describe('Client', () => {
         verifyCert: false,
         version: 2,
         maxSockets: 101,
+        keepAliveMs: 2000,
         recycleAfterMs: 15001,
         recycleAfterRequests: 1001,
       });
 
       expect(client.options).toEqual({
         headers: {},
+        retries: 0,
         url: 'https://api.swell.store',
         verifyCert: false,
         version: 2,
-        retries: 0,
         maxSockets: 101,
+        keepAliveMs: 2000,
         recycleAfterMs: 15001,
         recycleAfterRequests: 1001,
       });

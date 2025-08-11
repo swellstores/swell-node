@@ -29,6 +29,7 @@ export interface ClientOptions {
   headers?: HttpHeaders;
   retries?: number;
   maxSockets?: number;
+  keepAliveMs?: number;
   recycleAfterRequests?: number;
   recycleAfterMs?: number;
   onClientRecycle?: (stats: {
@@ -56,6 +57,7 @@ const DEFAULT_OPTIONS: Readonly<ClientOptions> = Object.freeze({
   headers: {},
   retries: 0, // 0 => no retries
   maxSockets: 100,
+  keepAliveMs: 1000,
   recycleAfterRequests: 1000,
   recycleAfterMs: 15000, // 15 seconds
 });
@@ -143,7 +145,8 @@ export class Client {
   }
 
   _initHttpClient(): void {
-    const { url, timeout, verifyCert, headers, maxSockets } = this.options;
+    const { url, timeout, verifyCert, headers, maxSockets, keepAliveMs } =
+      this.options;
 
     const authToken = Buffer.from(
       `${this.clientId}:${this.clientKey}`,
@@ -167,14 +170,14 @@ export class Client {
         cookies: { jar },
         keepAlive: true,
         maxSockets: maxSockets || 100,
-        keepAliveMsecs: 1000,
+        keepAliveMsecs: keepAliveMs || 1000,
       }),
       httpsAgent: new HttpsCookieAgent({
         cookies: { jar },
         rejectUnauthorized: Boolean(verifyCert),
         keepAlive: true,
         maxSockets: maxSockets || 100,
-        keepAliveMsecs: 1000,
+        keepAliveMsecs: keepAliveMs || 1000,
       }),
       ...(timeout ? { timeout } : undefined),
     });
