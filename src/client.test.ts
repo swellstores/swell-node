@@ -308,4 +308,227 @@ describe('Client', () => {
       expect(attemptsCouter).toBe(1);
     });
   }); // describe: #retry
+
+  describe('#rotateConnections', () => {
+    let client: Client;
+
+    beforeEach(() => {
+      client = new Client('id', 'key', {
+        connectionPool: {
+          keepAlive: true,
+          maxSockets: 100,
+          keepAliveMsecs: 1000,
+        },
+      });
+    });
+
+    test('rotates default 20% of connections', () => {
+      // Create mock sockets
+      const mockSockets = Array.from({ length: 10 }, (_, i) => ({
+        destroyed: false,
+        id: `socket${i}`,
+      }));
+
+      // Mock the agents with sockets
+      (client as any).httpAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [...mockSockets.slice(0, 5)],
+        },
+      };
+
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [...mockSockets.slice(5, 10)],
+        },
+      };
+
+      const rotated = client.rotateConnections();
+      
+      // Should rotate 20% of 10 sockets = 2 sockets
+      expect(rotated).toBe(2);
+      
+      // Check that sockets were removed from pools
+      const httpRemaining = (client as any).httpAgent.sockets['api.swell.store:443'].length;
+      const httpsRemaining = (client as any).httpsAgent.sockets['api.swell.store:443'].length;
+      expect(httpRemaining + httpsRemaining).toBe(8);
+    });
+
+    test('rotates specified percentage of connections', () => {
+      const mockSockets = Array.from({ length: 10 }, (_, i) => ({
+        destroyed: false,
+        id: `socket${i}`,
+      }));
+
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [...mockSockets],
+        },
+      };
+
+      const rotated = client.rotateConnections({ percentage: 0.5 });
+      
+      // Should rotate 50% of 10 sockets = 5 sockets
+      expect(rotated).toBe(5);
+      expect((client as any).httpsAgent.sockets['api.swell.store:443'].length).toBe(5);
+    });
+
+    test('handles multiple hosts in socket pools', () => {
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [{ destroyed: false }, { destroyed: false }],
+          'cdn.swell.store:443': [{ destroyed: false }, { destroyed: false }],
+          'admin.swell.store:443': [{ destroyed: false }, { destroyed: false }],
+        },
+      };
+
+      const rotated = client.rotateConnections({ percentage: 0.5 });
+      
+      // Should rotate 50% from each host: 1 + 1 + 1 = 3
+      expect(rotated).toBe(3);
+    });
+
+    test('returns 0 when no keepAlive configured', () => {
+      (client as any).httpsAgent = {
+        keepAlive: false, // No keep-alive
+        sockets: {
+          'api.swell.store:443': [{ destroyed: false }, { destroyed: false }],
+        },
+      };
+
+      const rotated = client.rotateConnections();
+      expect(rotated).toBe(0);
+    });
+
+    test('returns 0 when no keepAliveMsecs configured', () => {
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: undefined, // No timeout
+        sockets: {
+          'api.swell.store:443': [{ destroyed: false }, { destroyed: false }],
+        },
+      };
+
+      const rotated = client.rotateConnections();
+      expect(rotated).toBe(0);
+    });
+
+    test('returns 0 when keepAliveMsecs is too high', () => {
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 70000, // > 60000ms
+        sockets: {
+          'api.swell.store:443': [{ destroyed: false }, { destroyed: false }],
+        },
+      };
+
+      const rotated = client.rotateConnections();
+      expect(rotated).toBe(0);
+    });
+
+    test('handles empty socket pools', () => {
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [],
+        },
+      };
+
+      const rotated = client.rotateConnections();
+      expect(rotated).toBe(0);
+    });
+
+    test('handles missing agents gracefully', () => {
+      (client as any).httpAgent = null;
+      (client as any).httpsAgent = null;
+
+      const rotated = client.rotateConnections();
+      expect(rotated).toBe(0);
+    });
+
+    test('skips destroyed sockets', () => {
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [
+            { destroyed: true },
+            { destroyed: false },
+            { destroyed: true },
+            { destroyed: false },
+          ],
+        },
+      };
+
+      const rotated = client.rotateConnections({ percentage: 1.0 });
+      
+      // Should only count non-destroyed sockets
+      expect(rotated).toBe(2);
+      expect((client as any).httpsAgent.sockets['api.swell.store:443'].length).toBe(0);
+    });
+
+    test('clamps percentage to valid range', () => {
+      const mockSockets = Array.from({ length: 10 }, () => ({ destroyed: false }));
+
+      (client as any).httpsAgent = {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        sockets: {
+          'api.swell.store:443': [...mockSockets],
+        },
+      };
+
+      // Test percentage > 1
+      let rotated = client.rotateConnections({ percentage: 1.5 });
+      expect(rotated).toBe(10); // Should clamp to 1.0
+
+      // Reset sockets
+      (client as any).httpsAgent.sockets['api.swell.store:443'] = [...mockSockets];
+
+      // Test negative percentage
+      rotated = client.rotateConnections({ percentage: -0.5 });
+      expect(rotated).toBe(0); // Should clamp to 0
+    });
+
+    test('removes sockets randomly', () => {
+      // This test verifies randomness by checking distribution over multiple runs
+      const runRotationTest = () => {
+        const mockSockets = Array.from({ length: 10 }, (_, i) => ({
+          destroyed: false,
+          id: i,
+        }));
+
+        (client as any).httpsAgent = {
+          keepAlive: true,
+          keepAliveMsecs: 1000,
+          sockets: {
+            'api.swell.store:443': [...mockSockets],
+          },
+        };
+
+        client.rotateConnections({ percentage: 0.3 }); // Rotate 3 out of 10
+        
+        // Return IDs of remaining sockets
+        return (client as any).httpsAgent.sockets['api.swell.store:443'].map((s: any) => s.id);
+      };
+
+      // Run multiple times to check for randomness
+      const results = new Set();
+      for (let i = 0; i < 10; i++) {
+        const remaining = runRotationTest();
+        results.add(JSON.stringify(remaining.sort()));
+      }
+
+      // Should have different combinations (not always the same sockets removed)
+      expect(results.size).toBeGreaterThan(1);
+    });
+  }); // describe: #rotateConnections
 });

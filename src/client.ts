@@ -14,6 +14,12 @@ export interface HttpHeaders {
   [header: string]: axios.AxiosHeaderValue;
 }
 
+export interface ConnectionPoolOptions {
+  keepAlive?: boolean;
+  maxSockets?: number;
+  keepAliveMsecs?: number;
+}
+
 export interface ClientOptions {
   url?: string;
   verifyCert?: boolean;
@@ -21,6 +27,11 @@ export interface ClientOptions {
   timeout?: number;
   headers?: HttpHeaders;
   retries?: number;
+  connectionPool?: ConnectionPoolOptions;
+}
+
+export interface RotationOptions {
+  percentage?: number;
 }
 
 const MODULE_VERSION: string = (({ name, version }) => {
@@ -72,6 +83,8 @@ export class Client {
   clientKey: string;
   options: ClientOptions;
   httpClient: axios.AxiosInstance | null;
+  private httpAgent: any;
+  private httpsAgent: any;
 
   constructor(
     clientId?: string,
@@ -117,7 +130,7 @@ export class Client {
   }
 
   _initHttpClient(): void {
-    const { url, timeout, verifyCert, headers } = this.options;
+    const { url, timeout, verifyCert, headers, connectionPool } = this.options;
 
     const authToken = Buffer.from(
       `${this.clientId}:${this.clientKey}`,
@@ -125,6 +138,24 @@ export class Client {
     ).toString('base64');
 
     const jar = new CookieJar();
+
+    // Default connection pool settings
+    const poolConfig = {
+      keepAlive: connectionPool?.keepAlive ?? true,
+      maxSockets: connectionPool?.maxSockets ?? 100,
+      keepAliveMsecs: connectionPool?.keepAliveMsecs ?? 1000
+    };
+
+    this.httpAgent = new HttpCookieAgent({
+      cookies: { jar },
+      ...poolConfig
+    });
+
+    this.httpsAgent = new HttpsCookieAgent({
+      cookies: { jar },
+      rejectUnauthorized: Boolean(verifyCert),
+      ...poolConfig
+    });
 
     this.httpClient = axios.create({
       baseURL: url,
@@ -137,19 +168,8 @@ export class Client {
           Authorization: `Basic ${authToken}`,
         },
       },
-      httpAgent: new HttpCookieAgent({
-        cookies: { jar },
-        keepAlive: true,
-        maxSockets: 100,
-        keepAliveMsecs: 1000 // Default, but explicit
-      }),
-      httpsAgent: new HttpsCookieAgent({
-        cookies: { jar },
-        rejectUnauthorized: Boolean(verifyCert),
-        keepAlive: true,
-        maxSockets: 100,
-        keepAliveMsecs: 1000 // Default, but explicit
-      }),
+      httpAgent: this.httpAgent,
+      httpsAgent: this.httpsAgent,
       ...(timeout ? { timeout } : undefined),
     });
   }
@@ -213,6 +233,82 @@ export class Client {
         }
       });
     });
+  }
+
+  /**
+   * Rotate a percentage of active connections by removing them from the reuse pool.
+   * Sockets will naturally close after keepAliveMsecs of idle time.
+   * Returns the number of sockets removed from pools.
+   */
+  rotateConnections(options?: RotationOptions): number {
+    const percentage = Math.max(0, Math.min(1, options?.percentage ?? 0.2));
+    let totalRotated = 0;
+
+    [this.httpAgent, this.httpsAgent].forEach(agent => {
+      if (!agent || !agent.sockets) return;
+      
+      // Check if agent has proper keepAlive configuration
+      const keepAlive = agent.keepAlive ?? false;
+      const keepAliveMsecs = agent.keepAliveMsecs;
+      
+      if (!keepAlive || !keepAliveMsecs || keepAliveMsecs > 60000) {
+        // No rotation without proper timeout configuration
+        return;
+      }
+      
+      totalRotated += this._rotateAgentConnections(agent, percentage);
+    });
+
+    return totalRotated;
+  }
+
+  private _rotateAgentConnections(agent: any, percentage: number): number {
+    let rotated = 0;
+    
+    try {
+      // Check both sockets (active) and freeSockets (idle) pools
+      const poolTypes = ['sockets', 'freeSockets'];
+      
+      for (const poolType of poolTypes) {
+        const pools = agent[poolType];
+        if (!pools) continue;
+        
+        for (const hostKey in pools) {
+          const pool = pools[hostKey];
+          
+          if (!Array.isArray(pool) || pool.length === 0) continue;
+          
+          const toRotate = Math.ceil(pool.length * percentage);
+          const indices = this._selectRandomIndices(pool.length, toRotate);
+          
+          // Remove sockets from pool (from end to avoid index shifting)
+          indices.sort((a, b) => b - a).forEach(index => {
+            const socket = pool.splice(index, 1)[0];
+            if (socket && !socket.destroyed) {
+              rotated++;
+            }
+          });
+        }
+      }
+    } catch (error) {
+      // Silently handle errors - partial rotation is better than none
+    }
+    
+    return rotated;
+  }
+
+  private _selectRandomIndices(poolSize: number, count: number): number[] {
+    const indices: number[] = [];
+    const available = Array.from({ length: poolSize }, (_, i) => i);
+    
+    for (let i = 0; i < count && available.length > 0; i++) {
+      const randomIndex = Math.floor(Math.random() * available.length);
+      indices.push(available[randomIndex]);
+      available[randomIndex] = available[available.length - 1];
+      available.pop();
+    }
+    
+    return indices;
   }
 }
 
