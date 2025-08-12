@@ -69,11 +69,15 @@ describe('Client', () => {
       client.init('id', 'key');
 
       expect(client.options).toEqual({
-        headers: {},
         url: 'https://api.swell.store',
         verifyCert: true,
         version: 1,
+        headers: {},
         retries: 0,
+        maxSockets: 100,
+        keepAliveMs: 1000,
+        recycleAfterRequests: 1000,
+        recycleAfterMs: 15000,
       });
     });
 
@@ -81,14 +85,22 @@ describe('Client', () => {
       client.init('id', 'key', {
         verifyCert: false,
         version: 2,
+        maxSockets: 101,
+        keepAliveMs: 2000,
+        recycleAfterMs: 15001,
+        recycleAfterRequests: 1001,
       });
 
       expect(client.options).toEqual({
         headers: {},
+        retries: 0,
         url: 'https://api.swell.store',
         verifyCert: false,
         version: 2,
-        retries: 0,
+        maxSockets: 101,
+        keepAliveMs: 2000,
+        recycleAfterMs: 15001,
+        recycleAfterRequests: 1001,
       });
     });
 
@@ -308,4 +320,294 @@ describe('Client', () => {
       expect(attemptsCouter).toBe(1);
     });
   }); // describe: #retry
+
+  describe('#client recycling', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      jest.clearAllTimers();
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('should recycle client after reaching both request and time thresholds', async () => {
+      const onClientRecycle = jest.fn();
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 2,
+        recycleAfterMs: 1000,
+        onClientRecycle,
+      });
+
+      // Mock successful responses
+      mock.onGet('/test').reply(200, 'ok');
+
+      const initialClient = client.httpClient;
+
+      // Make first request
+      await client.get('/test');
+      expect(client.httpClient).toBe(initialClient);
+      expect(onClientRecycle).not.toHaveBeenCalled();
+
+      // Make second request without advancing time - should not recycle
+      await client.get('/test');
+      expect(client.httpClient).toBe(initialClient);
+      expect(onClientRecycle).not.toHaveBeenCalled();
+
+      // Advance time to meet recycling criteria and make another request
+      jest.advanceTimersByTime(1001);
+      await client.get('/test');
+
+      // Client should be recycled
+      expect(client.httpClient).not.toBe(initialClient);
+      expect(onClientRecycle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          totalRequests: 2,
+          ageMs: expect.any(Number),
+          newClientCreatedAt: expect.any(Number),
+        }),
+      );
+
+      const finalStats = client.getClientStats();
+      expect(finalStats.activeClient?.totalRequests).toBe(1);
+      expect(finalStats.oldClientsCount).toBe(1);
+    });
+
+    test('should not recycle client if request threshold not met', async () => {
+      const onClientRecycle = jest.fn();
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 5,
+        recycleAfterMs: 1000,
+        onClientRecycle,
+      });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      const initialClient = client.httpClient;
+
+      // Make requests but don't reach threshold
+      await client.get('/test');
+      jest.advanceTimersByTime(1001);
+      await client.get('/test');
+
+      expect(client.httpClient).toBe(initialClient);
+      expect(onClientRecycle).not.toHaveBeenCalled();
+    });
+
+    test('should not recycle client if time threshold not met', async () => {
+      const onClientRecycle = jest.fn();
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 2,
+        recycleAfterMs: 1000,
+        onClientRecycle,
+      });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      const initialClient = client.httpClient;
+
+      // Make requests but don't advance time enough
+      await client.get('/test');
+      await client.get('/test');
+      jest.advanceTimersByTime(500);
+      await client.get('/test');
+
+      expect(client.httpClient).toBe(initialClient);
+      expect(onClientRecycle).not.toHaveBeenCalled();
+    });
+
+    test('should track active and total requests correctly', async () => {
+      const client = new Client('id', 'key');
+
+      mock.onGet('/test').reply(() => {
+        // Check stats during request
+        const stats = client.getClientStats();
+        expect(stats.activeClient?.activeRequests).toBe(1);
+        return [200, 'ok'];
+      });
+
+      const initialStats = client.getClientStats();
+      expect(initialStats.activeClient?.activeRequests).toBe(0);
+      expect(initialStats.activeClient?.totalRequests).toBe(0);
+
+      await client.get('/test');
+
+      const finalStats = client.getClientStats();
+      expect(finalStats.activeClient?.activeRequests).toBe(0);
+      expect(finalStats.activeClient?.totalRequests).toBe(1);
+    });
+
+    test('should cleanup old clients when they have no active requests', async () => {
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 1,
+        recycleAfterMs: 100,
+      });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      // Trigger recycling
+      await client.get('/test');
+      jest.advanceTimersByTime(101);
+      await client.get('/test');
+
+      expect(client.getClientStats().oldClientsCount).toBe(1);
+
+      // Advance time to trigger cleanup interval
+      jest.advanceTimersByTime(1000);
+
+      expect(client.getClientStats().oldClientsCount).toBe(0);
+    });
+
+    test('should handle concurrent requests correctly during recycling', async () => {
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 1,
+        recycleAfterMs: 100,
+      });
+
+      let requestCount = 0;
+      mock.onGet('/test').reply(() => {
+        requestCount++;
+        return [200, `response-${requestCount}`];
+      });
+
+      // Start first request
+      const promise1 = client.get('/test');
+
+      // Advance time and start second request (should trigger recycling)
+      jest.advanceTimersByTime(101);
+      const promise2 = client.get('/test');
+
+      const [result1, result2] = await Promise.all([promise1, promise2]);
+
+      expect(result1).toBe('response-1');
+      expect(result2).toBe('response-2');
+      expect(client.getClientStats().oldClientsCount).toBe(1);
+    });
+
+    test('should provide accurate client stats', async () => {
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 2,
+        recycleAfterMs: 1000,
+      });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      const createdAt = Date.now();
+      jest.setSystemTime(createdAt);
+
+      // Initial stats
+      let stats = client.getClientStats();
+      expect(stats.activeClient?.createdAt).toBe(createdAt);
+      expect(stats.activeClient?.activeRequests).toBe(0);
+      expect(stats.activeClient?.totalRequests).toBe(0);
+      expect(stats.activeClient?.ageMs).toBe(0);
+      expect(stats.oldClientsCount).toBe(0);
+
+      // After requests
+      await client.get('/test');
+      await client.get('/test');
+      stats = client.getClientStats();
+      expect(stats.activeClient?.totalRequests).toBe(2);
+
+      // Advance time and trigger recycling
+      jest.advanceTimersByTime(1001);
+      await client.get('/test');
+
+      stats = client.getClientStats();
+      expect(stats.activeClient?.totalRequests).toBe(1); // New client has 1 request
+      expect(stats.oldClientsCount).toBe(1);
+      expect(stats.oldClients).toHaveLength(1);
+      expect(stats.oldClients[0]).toMatchObject({
+        id: expect.any(String),
+        createdAt: createdAt,
+        totalRequests: 2,
+        ageMs: expect.any(Number),
+      });
+    });
+
+    test('should call onClientRecycle callback with correct stats', async () => {
+      const onClientRecycle = jest.fn();
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 1,
+        recycleAfterMs: 100,
+        onClientRecycle,
+      });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      const startTime = Date.now();
+      jest.setSystemTime(startTime);
+
+      // Trigger recycling
+      await client.get('/test');
+      jest.advanceTimersByTime(101);
+      await client.get('/test');
+
+      expect(onClientRecycle).toHaveBeenCalledWith({
+        createdAt: startTime,
+        activeRequests: 0,
+        totalRequests: 1,
+        ageMs: 101,
+        newClientCreatedAt: expect.any(Number),
+      });
+    });
+
+    test('should use default recycling values when not specified', async () => {
+      const onClientRecycle = jest.fn();
+      const client = new Client('id', 'key', { onClientRecycle });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      const initialClient = client.httpClient;
+
+      // Make many requests but don't reach default threshold (1000)
+      for (let i = 0; i < 999; i++) {
+        await client.get('/test');
+      }
+
+      // Advance time past default (15000ms) but still below request threshold
+      jest.advanceTimersByTime(20000);
+      await client.get('/test');
+
+      // Should not recycle because request threshold not met
+      expect(client.httpClient).toBe(initialClient);
+      expect(onClientRecycle).not.toHaveBeenCalled();
+
+      // Now reach the request threshold
+      await client.get('/test');
+
+      // Should recycle now
+      expect(client.httpClient).not.toBe(initialClient);
+      expect(onClientRecycle).toHaveBeenCalled();
+    });
+
+    test('should handle error in onClientRecycle callback gracefully', async () => {
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const onClientRecycle = jest.fn().mockImplementation(() => {
+        throw new Error('Callback error');
+      });
+
+      const client = new Client('id', 'key', {
+        recycleAfterRequests: 1,
+        recycleAfterMs: 100,
+        onClientRecycle,
+      });
+
+      mock.onGet('/test').reply(200, 'ok');
+
+      // This should not throw even though callback throws
+      await client.get('/test');
+      jest.advanceTimersByTime(101);
+      await expect(client.get('/test')).resolves.toBe('ok');
+
+      expect(onClientRecycle).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Error in onClientRecycle callback:',
+        expect.any(Error),
+      );
+
+      consoleSpy.mockRestore();
+    });
+  }); // describe: #client recycling
 });

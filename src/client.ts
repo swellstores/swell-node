@@ -14,6 +14,13 @@ export interface HttpHeaders {
   [header: string]: axios.AxiosHeaderValue;
 }
 
+export interface HttpClientWrapper {
+  client: axios.AxiosInstance;
+  createdAt: number;
+  activeRequests: number;
+  totalRequests: number;
+}
+
 export interface ClientOptions {
   url?: string;
   verifyCert?: boolean;
@@ -21,6 +28,17 @@ export interface ClientOptions {
   timeout?: number;
   headers?: HttpHeaders;
   retries?: number;
+  maxSockets?: number;
+  keepAliveMs?: number;
+  recycleAfterRequests?: number;
+  recycleAfterMs?: number;
+  onClientRecycle?: (stats: {
+    createdAt: number;
+    activeRequests: number;
+    totalRequests: number;
+    ageMs: number;
+    newClientCreatedAt: number;
+  }) => void;
 }
 
 const MODULE_VERSION: string = (({ name, version }) => {
@@ -38,6 +56,10 @@ const DEFAULT_OPTIONS: Readonly<ClientOptions> = Object.freeze({
   version: 1,
   headers: {},
   retries: 0, // 0 => no retries
+  maxSockets: 100,
+  keepAliveMs: 1000,
+  recycleAfterRequests: 1000,
+  recycleAfterMs: 15000, // 15 seconds
 });
 
 class ApiError extends Error {
@@ -72,6 +94,9 @@ export class Client {
   clientKey: string;
   options: ClientOptions;
   httpClient: axios.AxiosInstance | null;
+  private _activeClient: HttpClientWrapper | null;
+  private _oldClients: Map<string, HttpClientWrapper>;
+  private _clientCounter: number;
 
   constructor(
     clientId?: string,
@@ -82,6 +107,9 @@ export class Client {
     this.clientKey = typeof clientKey === 'string' ? clientKey : '';
     this.options = {};
     this.httpClient = null;
+    this._activeClient = null;
+    this._oldClients = new Map();
+    this._clientCounter = 0;
 
     if (clientId) {
       this.init(clientId, clientKey, options);
@@ -117,7 +145,8 @@ export class Client {
   }
 
   _initHttpClient(): void {
-    const { url, timeout, verifyCert, headers } = this.options;
+    const { url, timeout, verifyCert, headers, maxSockets, keepAliveMs } =
+      this.options;
 
     const authToken = Buffer.from(
       `${this.clientId}:${this.clientKey}`,
@@ -126,7 +155,7 @@ export class Client {
 
     const jar = new CookieJar();
 
-    this.httpClient = axios.create({
+    const newClient = axios.create({
       baseURL: url,
       headers: {
         common: {
@@ -140,18 +169,109 @@ export class Client {
       httpAgent: new HttpCookieAgent({
         cookies: { jar },
         keepAlive: true,
-        maxSockets: 100,
-        keepAliveMsecs: 1000 // Default, but explicit
+        maxSockets: maxSockets || 100,
+        keepAliveMsecs: keepAliveMs || 1000,
       }),
       httpsAgent: new HttpsCookieAgent({
         cookies: { jar },
         rejectUnauthorized: Boolean(verifyCert),
         keepAlive: true,
-        maxSockets: 100,
-        keepAliveMsecs: 1000 // Default, but explicit
+        maxSockets: maxSockets || 100,
+        keepAliveMsecs: keepAliveMs || 1000,
       }),
       ...(timeout ? { timeout } : undefined),
     });
+
+    this.httpClient = newClient;
+    this._activeClient = {
+      client: newClient,
+      createdAt: Date.now(),
+      activeRequests: 0,
+      totalRequests: 0,
+    };
+  }
+
+  private _shouldRecycleClient(): boolean {
+    if (!this._activeClient) return false;
+
+    const { recycleAfterRequests, recycleAfterMs } = this.options;
+    const now = Date.now();
+    const ageMs = now - this._activeClient.createdAt;
+
+    return (
+      this._activeClient.totalRequests >= (recycleAfterRequests || 1000) &&
+      ageMs >= (recycleAfterMs || 300000)
+    );
+  }
+
+  private _recycleHttpClient(): void {
+    if (!this._activeClient) return;
+
+    const oldClientStats = {
+      createdAt: this._activeClient.createdAt,
+      activeRequests: this._activeClient.activeRequests,
+      totalRequests: this._activeClient.totalRequests,
+      ageMs: Date.now() - this._activeClient.createdAt,
+    };
+
+    // Move current client to old clients map
+    const clientId = `client_${++this._clientCounter}`;
+    this._oldClients.set(clientId, this._activeClient);
+
+    // Create new client
+    this._initHttpClient();
+
+    // Call the callback if provided
+    if (this.options.onClientRecycle) {
+      try {
+        this.options.onClientRecycle({
+          ...oldClientStats,
+          newClientCreatedAt: this._activeClient!.createdAt,
+        });
+      } catch (error) {
+        // Silently ignore callback errors to prevent disrupting the recycling process
+        console.warn('Error in onClientRecycle callback:', error);
+      }
+    }
+
+    // Schedule cleanup of old client when no active requests
+    this._scheduleOldClientCleanup(clientId);
+  }
+
+  private _scheduleOldClientCleanup(clientId: string): void {
+    const checkInterval = setInterval(() => {
+      const oldClient = this._oldClients.get(clientId);
+      if (!oldClient) {
+        clearInterval(checkInterval);
+        return;
+      }
+
+      if (oldClient.activeRequests === 0) {
+        // Destroy the HTTP agents to free resources
+        if (oldClient.client.defaults.httpAgent) {
+          (
+            oldClient.client.defaults.httpAgent as { destroy?: () => void }
+          ).destroy?.();
+        }
+        if (oldClient.client.defaults.httpsAgent) {
+          (
+            oldClient.client.defaults.httpsAgent as { destroy?: () => void }
+          ).destroy?.();
+        }
+
+        this._oldClients.delete(clientId);
+        clearInterval(checkInterval);
+      }
+    }, 1000); // Check every second
+  }
+
+  private _getClientForRequest(): HttpClientWrapper {
+    // Check if we need to recycle the current client
+    if (this._shouldRecycleClient()) {
+      this._recycleHttpClient();
+    }
+
+    return this._activeClient!;
   }
 
   get<T>(url: string, data?: unknown, headers?: HttpHeaders): Promise<T> {
@@ -195,8 +315,14 @@ export class Client {
           return reject(new Error('Swell API client not initialized'));
         }
 
+        const clientWrapper = this._getClientForRequest();
+
+        // Increment counters
+        clientWrapper.activeRequests++;
+        clientWrapper.totalRequests++;
+
         try {
-          const response = await this.httpClient.request<T>(requestParams);
+          const response = await clientWrapper.client.request<T>(requestParams);
           resolve(transformResponse(response).data);
         } catch (error) {
           // Attempt retry if we encounter a timeout or connection error
@@ -210,9 +336,38 @@ export class Client {
             return;
           }
           reject(transformError(error));
+        } finally {
+          // Decrement active request counter
+          clientWrapper.activeRequests--;
         }
       });
     });
+  }
+
+  /**
+   * Get statistics about HTTP client usage
+   */
+  getClientStats() {
+    return {
+      activeClient: this._activeClient
+        ? {
+            createdAt: this._activeClient.createdAt,
+            activeRequests: this._activeClient.activeRequests,
+            totalRequests: this._activeClient.totalRequests,
+            ageMs: Date.now() - this._activeClient.createdAt,
+          }
+        : null,
+      oldClientsCount: this._oldClients.size,
+      oldClients: Array.from(this._oldClients.entries()).map(
+        ([id, client]) => ({
+          id,
+          createdAt: client.createdAt,
+          activeRequests: client.activeRequests,
+          totalRequests: client.totalRequests,
+          ageMs: Date.now() - client.createdAt,
+        }),
+      ),
+    };
   }
 }
 
@@ -288,8 +443,10 @@ function transformError(error: unknown): ApiError {
       headers = normalizeHeaders(error.response.headers);
     } else if (error.request) {
       // The request was made but no response was received
-      code = 'NO_RESPONSE';
-      message = 'No response from server';
+      code = `NO_RESPONSE${error.code ? ` (${error.code})` : ''}`;
+      message = `No response from server${
+        error.message ? ` (${error.message})` : ''
+      }`;
     } else {
       // Something happened in setting up the request that triggered an Error
       // The request was made but no response was received
