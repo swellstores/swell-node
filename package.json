@@ -1,6 +1,6 @@
 {
   "name": "swell-node",
-  "version": "6.0.2",
+  "version": "6.0.3",
   "description": "Swell API client for NodeJS",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
