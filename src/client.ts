@@ -443,8 +443,10 @@ function transformError(error: unknown): ApiError {
       headers = normalizeHeaders(error.response.headers);
     } else if (error.request) {
       // The request was made but no response was received
-      code = 'NO_RESPONSE';
-      message = 'No response from server';
+      code = `NO_RESPONSE${error.code ? ` (${error.code})` : ''}`;
+      message = `No response from server${
+        error.message ? ` (${error.message})` : ''
+      }`;
     } else {
       // Something happened in setting up the request that triggered an Error
       // The request was made but no response was received
