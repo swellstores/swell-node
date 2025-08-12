@@ -88,6 +88,7 @@ const RETRY_CODES = new Set([
   'ECONNABORTED',
   'ECONNREFUSED',
   'ECONNRESET',
+  'EPIPE',
   'NO_RESPONSE',
 ]);
 
