@@ -84,7 +84,12 @@ class ApiError extends Error {
 }
 
 // We should retry request only in case of timeout or disconnect
-const RETRY_CODES = new Set(['ECONNABORTED', 'ECONNREFUSED']);
+const RETRY_CODES = new Set([
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'NO_RESPONSE',
+]);
 
 /**
  * Swell API Client.
@@ -443,7 +448,7 @@ function transformError(error: unknown): ApiError {
       headers = normalizeHeaders(error.response.headers);
     } else if (error.request) {
       // The request was made but no response was received
-      code = `NO_RESPONSE${error.code ? ` (${error.code})` : ''}`;
+      code = 'NO_RESPONSE';
       message = `No response from server${
         error.message ? ` (${error.message})` : ''
       }`;
