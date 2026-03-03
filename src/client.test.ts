@@ -237,7 +237,13 @@ describe('Client', () => {
 
       await expect(
         client.request(HttpMethod.get, '/products/:count', {}),
-      ).rejects.toThrow(new Error('Internal Server Error'));
+      ).rejects.toThrow(
+        new Error('Internal Server Error', {
+          cause: new Error('Request failed with status code 500', {
+            cause: new Error('Request failed with status code 500'),
+          }),
+        }),
+      );
     });
 
     test('handles a timeout', async () => {
@@ -247,7 +253,13 @@ describe('Client', () => {
 
       await expect(
         client.request(HttpMethod.get, '/products/:count', {}),
-      ).rejects.toThrow(new Error('timeout of 0ms exceeded'));
+      ).rejects.toThrow(
+        new Error('timeout of 0ms exceeded', {
+          cause: new Error('timeout of 0ms exceeded', {
+            cause: new Error('timeout of 0ms exceeded'),
+          }),
+        }),
+      );
     });
   }); // describe: #request
 
@@ -260,7 +272,13 @@ describe('Client', () => {
 
       await expect(
         client.request(HttpMethod.get, '/products/:count', {}),
-      ).rejects.toThrow(new Error('timeout of 0ms exceeded'));
+      ).rejects.toThrow(
+        new Error('timeout of 0ms exceeded', {
+          cause: new Error('timeout of 0ms exceeded', {
+            cause: new Error('timeout of 0ms exceeded'),
+          }),
+        }),
+      );
     });
 
     test('handle retries option', async () => {
@@ -301,7 +319,13 @@ describe('Client', () => {
 
       await expect(
         client.request(HttpMethod.get, '/categories/:count', {}),
-      ).rejects.toThrow(new Error('timeout of 0ms exceeded'));
+      ).rejects.toThrow(
+        new Error('timeout of 0ms exceeded', {
+          cause: new Error('timeout of 0ms exceeded', {
+            cause: new Error('timeout of 0ms exceeded'),
+          }),
+        }),
+      );
     });
 
     test('handle return error code without retries', async () => {
