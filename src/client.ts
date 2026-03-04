@@ -438,22 +438,21 @@ function captureStackTrace(constructorOpt?: Function): string {
   if (typeof Error.captureStackTrace === 'function') {
     const error = { stack: '' };
     Error.captureStackTrace(error, constructorOpt || captureStackTrace);
-    return error.stack;
+    // Remove first line with empty "Error"
+    return error.stack.slice(error.stack.indexOf('\n') + 1);
   }
 
   // Fallback to extract stacktrace from Error
-  let stack = new Error('123').stack || '';
+  let stack = new Error('').stack || '';
   let pos = stack.indexOf('\n');
 
   if (pos !== -1) {
-    const start = pos;
-
     // Cut 2 lines from the stacktrace
     pos = stack.indexOf('\n', pos + 1);
     pos = stack.indexOf('\n', pos + 1);
 
     if (pos !== -1) {
-      stack = stack.slice(0, start) + stack.slice(pos);
+      stack = stack.slice(pos + 1);
     }
   }
 
@@ -508,7 +507,7 @@ function transformError(error: unknown, stacktrace?: string): ApiError {
   );
 
   if (stacktrace) {
-    apiError.stack = stacktrace;
+    apiError.stack = apiError.toString() + '\n' + stacktrace;
   }
 
   return apiError;
