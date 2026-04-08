@@ -1,4 +1,4 @@
-import * as axios from 'axios';
+import axios from 'axios';
 import * as retry from 'retry';
 import { CookieJar } from 'tough-cookie';
 import { HttpCookieAgent, HttpsCookieAgent } from 'http-cookie-agent/http';
@@ -63,7 +63,6 @@ const DEFAULT_OPTIONS: Readonly<ClientOptions> = Object.freeze({
 });
 
 class ApiError extends Error {
-  message: string;
   code?: string;
   status?: number;
   headers: HttpHeaders;
@@ -73,10 +72,10 @@ class ApiError extends Error {
     code?: string,
     status?: number,
     headers: HttpHeaders = {},
+    cause?: unknown,
   ) {
-    super();
+    super(message, cause ? { cause } : undefined);
 
-    this.message = message;
     this.code = code;
     this.status = status;
     this.headers = headers;
@@ -305,7 +304,10 @@ export class Client {
     // Prepare url and data for request
     const requestParams = transformRequest(method, url, data, headers);
 
-    return new Promise((resolve, reject) => {
+    const executor = (
+      resolve: (value: T) => void,
+      reject: (reason: unknown) => void,
+    ) => {
       const { retries } = this.options;
 
       const operation = retry.operation({
@@ -315,6 +317,9 @@ export class Client {
         factor: 1,
         randomize: false,
       });
+
+      // Remember stacktrace
+      const stacktrace = captureStackTrace(executor);
 
       operation.attempt(async () => {
         if (this.httpClient === null) {
@@ -341,13 +346,15 @@ export class Client {
           ) {
             return;
           }
-          reject(transformError(error));
+          reject(transformError(error, stacktrace));
         } finally {
           // Decrement active request counter
           clientWrapper.activeRequests--;
         }
       });
-    });
+    };
+
+    return new Promise(executor);
   }
 
   /**
@@ -426,13 +433,40 @@ function isError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error;
 }
 
+// eslint-disable-next-line @typescript-eslint/ban-types
+function captureStackTrace(constructorOpt?: Function): string {
+  if (typeof Error.captureStackTrace === 'function') {
+    const error = { stack: '' };
+    Error.captureStackTrace(error, constructorOpt || captureStackTrace);
+    // Remove first line with empty "Error"
+    return error.stack.slice(error.stack.indexOf('\n') + 1);
+  }
+
+  // Fallback to extract stacktrace from Error
+  let stack = new Error('').stack || '';
+  let pos = stack.indexOf('\n');
+
+  if (pos !== -1) {
+    // Cut 2 lines from the stacktrace
+    pos = stack.indexOf('\n', pos + 1);
+    pos = stack.indexOf('\n', pos + 1);
+
+    if (pos !== -1) {
+      stack = stack.slice(pos + 1);
+    }
+  }
+
+  return stack;
+}
+
 /**
  * Transforms the error response.
  *
  * @param error The Error object
+ * @param stacktrace The stacktrace of the request
  * @return {ApiError}
  */
-function transformError(error: unknown): ApiError {
+function transformError(error: unknown, stacktrace?: string): ApiError {
   let code,
     message = '',
     status,
@@ -464,12 +498,19 @@ function transformError(error: unknown): ApiError {
     message = error.message;
   }
 
-  return new ApiError(
+  const apiError = new ApiError(
     message,
     typeof code === 'string' ? code.toUpperCase().replace(/ /g, '_') : 'ERROR',
     status,
     headers,
+    error,
   );
+
+  if (stacktrace) {
+    apiError.stack = apiError.toString() + '\n' + stacktrace;
+  }
+
+  return apiError;
 }
 
 function normalizeHeaders(
