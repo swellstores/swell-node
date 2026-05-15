@@ -21,6 +21,14 @@ export interface HttpClientWrapper {
   totalRequests: number;
 }
 
+export interface RequestStats {
+  method: HttpMethod;
+  url: string;
+  attempts: number;
+  success: boolean;
+  durationMs: number;
+}
+
 export interface ClientOptions {
   url?: string;
   verifyCert?: boolean;
@@ -39,6 +47,7 @@ export interface ClientOptions {
     ageMs: number;
     newClientCreatedAt: number;
   }) => void;
+  onRequestComplete?: (stats: RequestStats) => void;
 }
 
 const MODULE_VERSION: string = (({ name, version }) => {
@@ -309,6 +318,29 @@ export class Client {
       reject: (reason: unknown) => void,
     ) => {
       const { retries } = this.options;
+      let attempts = 0;
+      const startedAt = Date.now();
+
+      let completed = false;
+
+      const notifyRequestComplete = (success: boolean) => {
+        if (completed) return;
+        completed = true;
+
+        if (!this.options.onRequestComplete) return;
+
+        try {
+          this.options.onRequestComplete({
+            method,
+            url,
+            attempts,
+            success,
+            durationMs: Date.now() - startedAt,
+          });
+        } catch (err) {
+          console.warn('Error in onRequestComplete callback:', err);
+        }
+      };
 
       const operation = retry.operation({
         retries,
@@ -323,10 +355,12 @@ export class Client {
 
       operation.attempt(async () => {
         if (this.httpClient === null) {
+          notifyRequestComplete(false);
           return reject(new Error('Swell API client not initialized'));
         }
 
         const clientWrapper = this._getClientForRequest();
+        attempts++;
 
         // Increment counters
         clientWrapper.activeRequests++;
@@ -334,6 +368,7 @@ export class Client {
 
         try {
           const response = await clientWrapper.client.request<T>(requestParams);
+          notifyRequestComplete(true);
           resolve(transformResponse(response).data);
         } catch (error) {
           // Attempt retry if we encounter a timeout or connection error
@@ -346,6 +381,7 @@ export class Client {
           ) {
             return;
           }
+          notifyRequestComplete(false);
           reject(transformError(error, stacktrace));
         } finally {
           // Decrement active request counter

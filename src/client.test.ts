@@ -261,6 +261,46 @@ describe('Client', () => {
         }),
       );
     });
+
+    test('calls onRequestComplete without retries for successful requests', async () => {
+      const onRequestComplete = jest.fn();
+      const client = new Client('id', 'key', { onRequestComplete });
+
+      mock.onGet('/carts').reply(200, 42);
+
+      await expect(
+        client.request(HttpMethod.get, '/carts', {}),
+      ).resolves.toEqual(42);
+
+      expect(onRequestComplete).toHaveBeenCalledTimes(1);
+      expect(onRequestComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: HttpMethod.get,
+          url: '/carts',
+          attempts: 1,
+          success: true,
+          durationMs: expect.any(Number),
+        }),
+      );
+    });
+
+    test('ignores errors from onRequestComplete on successful requests', async () => {
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const onRequestComplete = jest.fn().mockImplementation(() => {
+        throw new Error('Callback error');
+      });
+      const client = new Client('id', 'key', { onRequestComplete });
+
+      mock.onGet('/orders').reply(200, 42);
+
+      await expect(client.get('/orders')).resolves.toEqual(42);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Error in onRequestComplete callback:',
+        expect.any(Error),
+      );
+
+      consoleSpy.mockRestore();
+    });
   }); // describe: #request
 
   describe('#retry', () => {
@@ -301,6 +341,34 @@ describe('Client', () => {
       expect(response).toEqual(42);
     });
 
+    test('calls onRequestComplete with retry attempts for eventual success', async () => {
+      const onRequestComplete = jest.fn();
+      const client = new Client('id', 'key', {
+        retries: 3,
+        onRequestComplete,
+      });
+
+      mock
+        .onGet('/products')
+        .timeoutOnce()
+        .onGet('/products')
+        .timeoutOnce()
+        .onGet('/products')
+        .replyOnce(200, 42);
+
+      await expect(client.get('/products')).resolves.toEqual(42);
+
+      expect(onRequestComplete).toHaveBeenCalledTimes(1);
+      expect(onRequestComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: HttpMethod.get,
+          url: '/products',
+          attempts: 3,
+          success: true,
+        }),
+      );
+    });
+
     test('handle return error if response not received after retries', async () => {
       const client = new Client('id', 'key', { retries: 3 });
 
@@ -326,6 +394,52 @@ describe('Client', () => {
           }),
         }),
       );
+    });
+
+    test('calls onRequestComplete with exhausted retry attempts for failures', async () => {
+      const onRequestComplete = jest.fn();
+      const client = new Client('id', 'key', {
+        retries: 2,
+        onRequestComplete,
+      });
+
+      mock
+        .onGet('/contacts')
+        .timeoutOnce()
+        .onGet('/contacts')
+        .timeoutOnce()
+        .onGet('/contacts')
+        .timeoutOnce();
+
+      await expect(client.get('/contacts')).rejects.toThrow();
+
+      expect(onRequestComplete).toHaveBeenCalledTimes(1);
+      expect(onRequestComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: HttpMethod.get,
+          url: '/contacts',
+          attempts: 3,
+          success: false,
+        }),
+      );
+    });
+
+    test('ignores errors from onRequestComplete on failed requests', async () => {
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const onRequestComplete = jest.fn().mockImplementation(() => {
+        throw new Error('Callback error');
+      });
+      const client = new Client('id', 'key', { onRequestComplete });
+
+      mock.onGet('/orders').timeout();
+
+      await expect(client.get('/orders')).rejects.toThrow();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Error in onRequestComplete callback:',
+        expect.any(Error),
+      );
+
+      consoleSpy.mockRestore();
     });
 
     test('handle return error code without retries', async () => {
